@@ -11,8 +11,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
        web.vm.box = "webserver01"
        web.vm.box_url = "http://files.vagrantup.com/precise64.box"
        web.vm.provider :virtualbox  do |vb|
+       	vb.name = "webserver01"
        end
-end
+    end
+
+    config.vm.define "dev" do |dev|
+       dev.vm.hostname = "dev"
+       dev.vm.box = "dev01"
+       dev.vm.box_url = "http://developer.nrel.gov/downloads/vagrant-boxes/CentOS-6.4-x86_64-v20131103.box"
+       dev.vm.provider :virtualbox  do |vb|
+       	vb.name = "dev01"
+       	vb.memory = 1024
+       end
+    end
     
     config.vm.define "db" do |db|
        db.vm.hostname = "db"
@@ -30,6 +41,5 @@ end
         end
     end
 end
-
 
 
