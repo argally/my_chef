@@ -12,6 +12,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
        web.vm.box_url = "http://files.vagrantup.com/precise64.box"
        web.vm.provider :virtualbox  do |vb|
        	vb.name = "webserver01"
+       	vb.name = "web01"
+       	vb.memory = 512
        end
     end
 
@@ -26,7 +28,23 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
        	vb.memory = 1024
        end
     end
-    
+   
+       config.vm.define "web2" do |web2|
+       web2.vm.hostname = "web2"
+       web2.vm.box = "webserver02"
+       web2.vm.box_url = "https://github.com/mitchellh/vagrant-aws/raw/master/dummy.box"
+       web2.vm.provider :aws do |aws, override|
+           aws.instance_type = "t1.micro"
+           aws.security_groups = "launch-wizard-1"
+           aws.access_key_id = ENV['AWS_ACCESS_KEY']
+           aws.secret_access_key = ENV['AWS_SECRET_KEY']
+           aws.keypair_name = ENV['AWS_KEYPAIR_NAME']
+           override.ssh.username = "ubuntu"
+           override.ssh.private_key_path = ENV['MY_PRIVATE_AWS_SSH_KEY_PATH']
+           aws.ami = "ami-641c8e0d"
+        end
+    end
+
     config.vm.define "db" do |db|
        db.vm.hostname = "db"
        db.vm.box = "mysql"
@@ -42,10 +60,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
            aws.ami = "ami-641c8e0d"
         end
     end
+  
 end
 
 
-Vagrant.configure("2") do |config|
-  config.vm.network "private_network", ip: "192.168.50.4",
-    virtualbox__intnet: "mynetwork"
-end
