@@ -7,25 +7,18 @@
 # All rights reserved - Do Not Redistribute
 #
 
-# install apache but make it run on centos or ubuntu 
+# We've moved the logic for package selection to attributes/default.rb
+# As package_name variable no longer defined here we need to instead  set the node value for package_name
+# We use case node in the attribute/default.rb 
 
 
-package_name = "apache2"
-service_name = "apache2"
-document_root = "/var/www"
 
-if node["platform"] == "centos"
-	package_name == "httpd"
-	service_name == "httpd"
-	document_root == "/var/www/html"
-end
-
-package package_name do 
+package node["package_name"] do 
 	action :install
 end
 
 #install apache service
-service service_name do
+service node["service_name"] do
 	action [:start, :enable]
 end
 
@@ -37,7 +30,7 @@ end
 
 
 #Define an erb template 
-template "#{document_root}/index.html" do
+template "#{node["document_root"]}/index.html" do
 	source "index.html.erb"
 	mode "0644"
 end
