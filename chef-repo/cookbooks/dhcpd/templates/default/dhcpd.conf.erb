@@ -1,0 +1,55 @@
+# The ddns-updates-style parameter controls whether or not the server will
+# attempt to do a DNS update when a lease is confirmed. We default to the
+# behavior of the version 2 packages ('none', since DHCP v2 didn't
+# have support for DDNS.)
+<% if @ddnsstyle.nil? %>
+ddns-update-style none;
+<% else %>
+ddns-update-style @ddnsstyle;
+<% end %>
+
+# option definitions common to all supported networks...
+option domain-name "<%= @domainname %>";
+<% if @nameservers.nil? -%>
+option domain-name-servers 8.8.8.8, 8.8.4.4;
+<% else -%>
+option domain-name-servers <%= @nameservers.join(' ,') %>;
+<% end -%>
+
+default-lease-time 600;
+max-lease-time 7200;
+
+<% unless @authoritative.nil? -%>
+authoritative;
+<% end -%>
+
+log-facility <%= @logfacility %>;
+
+<% unless @ntpservers.nil? -%>
+option ntp-servers <%= @ntpservers.join(', ') %>;
+<% end -%>
+
+<% unless @subnets.nil? -%>
+<% @subnets.each_pair do |sitem,net| -%>
+subnet <%= net['network'] %> netmask <%= net['netmask'] %> {
+  option subnet-mask <%= net['netmask'] %>;
+  <% unless net['routers'].nil? -%>
+  option routers <%= net['routers'] %>;
+  <% end -%>
+  <% unless net['domainname'].nil? -%>
+  option domain-name <%= net['domainname'] %>;
+  <% end -%>
+  <% unless net['nameservers'].nil? -%>
+  option domain-name-servers <%= net['nameservers'].join(' ') %>;
+  <% end -%>
+  <% unless net['range'].nil? -%>
+  range <%= net['range']['start'] %> <%= net['range']['end'] %>;
+  <% end -%>
+  <% unless net['customlines'].nil? -%>
+  <% net['customlines'].each do |line| -%>
+  <%= line %>
+  <% end -%>
+  <% end -%>
+}
+<% end -%>
+<% end -%>
