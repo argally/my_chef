@@ -3,5 +3,6 @@ description "Common Server Base Configuration"
 
 run_list(
   "recipe[git]",
-  "recipe[python]"
+  "recipe[python]",
+  "recipe[bind-utils]"
 )
