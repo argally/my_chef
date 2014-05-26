@@ -20,7 +20,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
 
     config.vm.define "dev" do |dev|
-       config.vm.network "public_network", :bridge => 'en1: Wi-Fi (AirPort)'
+       config.vm.network "public_network", ip: "192.168.1.30", :bridge => 'en1: Wi-Fi (AirPort)'
        dev.vm.hostname = "dev"
        dev.vm.box = "dev01"
        dev.vm.box_url = "http://developer.nrel.gov/downloads/vagrant-boxes/CentOS-6.4-x86_64-v20131103.box"
