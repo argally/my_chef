@@ -21,6 +21,10 @@ package "dhcpd" do
   action :install
 end
 
+service node["service_name"] do
+	action [:start, :enable]
+end
+
 if platform_family?("ubuntu", "debian")
   template "/etc/default/isc-dhcp-server" do
     source "default-dhcp-server.erb"
