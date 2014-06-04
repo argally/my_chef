@@ -25,7 +25,7 @@ if python['install_method'] == 'package'
   when "smartos"
     default['python']['prefix_dir']         = '/opt/local'
   else
-    default['python']['prefix_dir']         = '/usr/local'
+    default['python']['prefix_dir']         = '/usr'
   end
 else
   default['python']['prefix_dir']         = '/usr/local'

@@ -22,7 +22,7 @@ package "dhcpd" do
 end
 
 service node["service_name"] do
-	action [:start, :enable]
+  action [:start, :enable]
 end
 
 if platform_family?("ubuntu", "debian")

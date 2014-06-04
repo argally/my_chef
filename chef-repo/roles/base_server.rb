@@ -4,5 +4,6 @@ description "Common Server Base Configuration"
 run_list(
   "recipe[git]",
   "recipe[python]",
-  "recipe[bind-utils]"
+  "recipe[bind-utils]",
+  "recipe[yum-epel]"
 )
