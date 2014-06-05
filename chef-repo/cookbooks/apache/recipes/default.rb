@@ -17,6 +17,17 @@ package node["package_name"] do
 	action :install
 end
 
+
+cookbook_file "#{document_root}/n3000-uk9.6.0.2.U3.1.bin" do
+	source "n3000-uk9.6.0.2.U3.1.bin"
+	mode "0644"
+end
+
+cookbook_file "#{document_root}/n3000-uk9-kickstart.6.0.2.U3.1.bin" do
+	source "n3000-uk9-kickstart.6.0.2.U3.1.bin"
+	mode "0644"
+end
+
 #install apache service
 service node["service_name"] do
 	action [:start, :enable]
