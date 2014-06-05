@@ -17,13 +17,12 @@ package node["package_name"] do
 	action :install
 end
 
-
-cookbook_file "#{document_root}/n3000-uk9.6.0.2.U3.1.bin" do
-	source "n3000-uk9.6.0.2.U3.1.bin"
+cookbook_file "#{node["document_root"]}/n3000-uk9-kickstart.6.0.2.U3.1.bin" do
+	source "n3000-uk9-kickstart.6.0.2.U3.1.bin"
 	mode "0644"
 end
 
-cookbook_file "#{document_root}/n3000-uk9-kickstart.6.0.2.U3.1.bin" do
+cookbook_file "#{node["document_root"]}/n3000-uk9-kickstart.6.0.2.U3.1.bin" do
 	source "n3000-uk9-kickstart.6.0.2.U3.1.bin"
 	mode "0644"
 end

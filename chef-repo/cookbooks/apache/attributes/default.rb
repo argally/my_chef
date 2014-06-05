@@ -16,6 +16,7 @@ when "centos"
   default["package_name"] = "httpd"
   default["service_name"] = "httpd"
   default["document_root"] = "/var/www/html"
+  default['listen_addresses'] = %w[*]
+  default['listen_ports'] = %w[8880]
 end
-
 

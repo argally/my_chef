@@ -7,7 +7,8 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     config.vm.define "dev2" do |dev2|
-       config.vm.network "public_network", ip: "10.60.0.40", :bridge => 'en0: Ethernet'
+       config.vm.network "public_network", ip: "10.60.224.10", :bridge => 'en0: Ethernet'
+       config.vm.network "private_network", ip: "192.168.56.50"
        dev2.vm.hostname = "dev2"
        dev2.vm.box = "dev02"
        dev2.vm.box_url = "http://developer.nrel.gov/downloads/vagrant-boxes/CentOS-6.4-x86_64-v20131103.box"
