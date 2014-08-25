@@ -8,6 +8,12 @@ ddns-update-style none;
 ddns-update-style @ddnsstyle;
 <% end %>
 
+class "NEXUS_POAP" {
+  match if (
+    (substring(option vendor-class-identifier, 0,15) = "Cisco N3K-C3172")
+  );
+}
+
 # option definitions common to all supported networks...
 option domain-name "<%= @domainname %>";
 <% if @nameservers.nil? -%>

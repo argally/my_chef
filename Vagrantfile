@@ -7,8 +7,10 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     config.vm.define "dev2" do |dev2|
-       config.vm.network "public_network", ip: "10.60.224.10", :bridge => 'en0: Ethernet'
-       config.vm.network "private_network", ip: "192.168.56.50"
+       config.vm.network "public_network", ip: "10.98.241.219", :bridge => 'en0: Ethernet'
+       config.vm.network "private_network", ip: "192.168.56.45"
+       config.vm.network "private_network", ip: "172.18.16.60",
+       virtualbox__intnet: "intnet"
        dev2.vm.hostname = "dev2"
        dev2.vm.box = "dev02"
        dev2.vm.box_url = "http://developer.nrel.gov/downloads/vagrant-boxes/CentOS-6.4-x86_64-v20131103.box"
@@ -32,6 +34,20 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
        end
     end
     
+    config.vm.define "openstack" do |openstack|
+       config.vm.network "public_network", ip: "10.60.0.35", :bridge => 'en0: Ethernet'
+       config.vm.network "private_network", ip: "192.168.56.60"
+       config.vm.network "private_network", ip: "172.18.16.70",
+       virtualbox__intnet: "intnet"
+       openstack.vm.hostname = "openstack"
+       openstack.vm.box = "openstack01"
+       openstack.vm.box_url = "http://files.vagrantup.com/precise64.box"
+       openstack.vm.provider :virtualbox  do |vb|
+        vb.name = "openstack01"
+        vb.memory = 2048
+       end
+    end
+
 
        config.vm.define "web2" do |web2|
        web2.vm.hostname = "web2"
