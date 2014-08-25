@@ -1,0 +1,616 @@
+#md5sum="cceabc319be14c10890f6a8cc4baefef"
+###################################################@@CVS_HEADER_BEGIN
+#
+#      File:  poap_script.py
+#      Name:
+#
+#      Description:
+#               Script to execute NXOS CLIs to perform copy config,
+#               kickstart, isan, etc...
+#
+# Copyright (c) 1985-2004, 2007-2013 by cisco Systems, Inc.
+# All rights reserved.
+#
+# $Id$
+# $Source$
+#
+#####################################################@@CVS_HEADER_END
+
+#script execution timeout value should be in seconds
+#script_timeout=1200
+from cisco import cli
+from cisco import transfer 
+from time import gmtime, strftime
+from cisco import md5sum
+import signal
+import os
+import string
+import commands
+import shutil
+import glob
+import syslog
+import time
+
+# Host name and user credentials
+username = "username"
+password = "password\r"
+hostname = "10.191.16.18"
+vrf	 = os.environ['POAP_VRF'] 
+
+# POAP can use 3 modes to obtain the config file.
+# - 'poap_static' - file is statically specified
+# - 'poap_location' - CDP neighbor of interface on which DHCPDISCOVER arrived
+#                     is used to derive the config file
+# - 'poap_serial_number' - switch serial number is used to derive the config file
+# - 'poap_mac' - use the interface (mgmt 0 interface / Single MAC address for all the
+#        front-panel interface) MAC address to derive the configuration filename
+#        (Example: for MAC Address 00:11:22:AA:BB:CC" the default configuration
+#        file looked for would be conf_001122AABBCC.cfg        
+# - 'poap_hostname' - Use the hostname from the DHCP OFFER to derive the configuration
+# 	file name (Example: conf_N3K-Switch-1.cfg for hostname 'N3K-Switch-1'
+
+poap_config_file_mode = "poap_serial_number"
+
+# Required space to copy config kickstart and system image in KB
+required_space = 300000
+
+####### Config File Infos #######
+
+# Source file name of Config file
+config_file_src = "poap.cfg"
+
+# Temperory Destination file of Config file
+config_file_dst = "poap_replay.cfg"
+
+# indicates whether config file is copied 
+config_copied = 0
+
+# Destination file name for those lines in config which starts with system vlan, interface breakout, hardware profile portmode or hardware profile tcam 
+config_file_dst_first = "poap_1.cfg"
+
+# Desination file name for those lines in config which does not match above criterea.
+config_file_dst_second = "poap_2.cfg"
+
+# Source path of Config file
+config_path = "/html/"
+
+# indicates whether first config file is empty or not 
+emptyFirstFile = 1
+
+# Destination Path 
+destination_path = "/bootflash/"
+
+####### System and Kickstart image info #######
+
+# Source path of both System and Kickstart images 
+image_path = "/html/"
+
+# Source file name of System Image 
+system_image_src = "n3000-uk9.6.0.2.U3.1.bin"
+
+# Destination file name of System Image
+system_image_dst = "n3k.s"
+
+# in-use file name of System Image *** DON'T EDIT ***
+system_image_saved = ""
+
+# indicates if System Image is copied
+system_image_copied = 0 
+
+# Source file name of Kickstart Image
+kickstart_image_src = "n3000-uk9-kickstart.6.0.2.U3.1.bin"
+
+# Destination file name of Kickstart Image
+kickstart_image_dst = "n3k.k"
+
+# in-use file name of Kickstart Image *** DON'T EDIT ***
+kickstart_image_saved = ""
+
+# indicates if Kickstart Image is copied
+kickstart_image_copied = 0 
+
+# Timeout info
+config_timeout = 120 
+system_timeout = 2100 
+kickstart_timeout = 900  
+
+# Log File name
+try:
+    if os.environ['POAP_PHASE'] == "USB":
+        poap_script_log = "/bootflash/%s_poap_%s_usb_script.log" % (strftime("%Y%m%d%H%M%S", gmtime()), os.environ['POAP_PID']) 
+    else: 
+        poap_script_log = "/bootflash/%s_poap_%s_script.log" % (strftime("%Y%m%d%H%M%S", gmtime()), os.environ['POAP_PID']) 
+except Exception as inst:
+    print inst
+
+#String2Mac Conversion
+def Str2Mac (poap_syslog_mac = ""):
+	poap_syslog_mac = "%s:%s:%s:%s:%s:%s" % (poap_syslog_mac[0:2], poap_syslog_mac[2:4], poap_syslog_mac[4:6], poap_syslog_mac[6:8], poap_syslog_mac[8:10], poap_syslog_mac[10:12])
+	return poap_syslog_mac
+    
+
+# Syslog Prefix
+def setSyslogPrefix():
+    global poap_syslog_prefix, env, poap_syslog_mac
+    if os.environ.has_key('POAP_SERIAL'):
+        poap_syslog_prefix = "S/N[%s]" % os.environ['POAP_SERIAL']
+    if os.environ['POAP_PHASE'] == "USB":
+        if os.environ.has_key('POAP_RMAC'):
+            poap_syslog_mac = "%s" % os.environ['POAP_RMAC']
+            poap_syslog_prefix = "%s-MAC[%s]" % (poap_syslog_prefix, poap_syslog_mac)
+            return
+        if os.environ.has_key('POAP_MGMT_MAC'):
+            poap_syslog_mac = "%s" % os.environ['POAP_MGMT_MAC']
+            poap_syslog_prefix = "%s-MAC[%s]" % (poap_syslog_prefix, poap_syslog_mac)
+            return
+    else:
+        if os.environ.has_key('POAP_MAC'):
+            poap_syslog_mac = "%s" % os.environ['POAP_MAC']
+            poap_syslog_mac = Str2Mac (poap_syslog_mac)
+            poap_syslog_prefix = "%s-MAC[%s]" % (poap_syslog_prefix, poap_syslog_mac)
+            return
+
+
+# Log file handler
+poap_script_log_handler = open(poap_script_log, "w+")
+
+setSyslogPrefix()
+
+def poap_cleanup_script_logs() :
+    preserve_last_logs = 4
+    files = []
+
+    path = destination_path
+
+    for infile in glob.glob( os.path.join(path, '*poap*script.log')):
+        files.append(infile)
+    files.sort()
+    files.reverse()
+
+    count = 0
+    for file in files:
+        count = count + 1
+        if count > preserve_last_logs:
+            os.remove(file)
+
+def poap_log (file_descriptor, info):
+    global poap_syslog_prefix
+    info = "%s - %s" % (poap_syslog_prefix, info) 
+    syslog.syslog(9, info)
+    file_descriptor.write("\n")
+    file_descriptor.write(info)
+    file_descriptor.flush()
+
+def remove_file (filename) :
+    try:
+        os.remove(filename)
+    except os.error:
+        pass
+
+def cleanup_files () : 
+    global config_file_dst, config_file_dst_first, config_file_dst_second, system_image_dst, kickstart_image_dst, poap_script_log_handler
+    poap_log(poap_script_log_handler, "INFO: delete all files")
+    if config_copied == 1:
+			remove_file("/bootflash/%s" % config_file_dst)
+    remove_file("/bootflash/%s" % config_file_dst_first)
+    remove_file("/bootflash/%s" % config_file_dst_second)
+    if system_image_copied == 1:
+    	remove_file("/bootflash/%s" % system_image_dst)
+    if kickstart_image_copied == 1:
+    	remove_file("/bootflash/%s" % kickstart_image_dst)
+    remove_file("/bootflash/%s.tmp" % config_file_dst)
+    remove_file("/bootflash/%s.tmp" % system_image_dst)
+    remove_file("/bootflash/%s.tmp" % kickstart_image_dst)
+
+
+def sig_handler_no_exit (signum, frame) : 
+    global poap_script_log_handler
+    poap_log(poap_script_log_handler, "INFO: SIGTERM Handler while configuring boot variables")
+
+
+def sigterm_handler (signum, frame): 
+    global poap_script_log_handler
+    poap_log(poap_script_log_handler, "INFO: SIGTERM Handler") 
+    cleanup_files()
+    poap_script_log_handler.close()
+    exit(1)
+
+def removeFile (filename) :
+    try:
+    	os.remove(filename)
+    except:
+	pass
+
+signal.signal(signal.SIGTERM, sigterm_handler)
+
+# Procedure to split config file using global information
+def splitConfigFile (): 
+        global config_file_dst, config_file_dst_first, config_file_dst_second, emptyFirstFile, poap_script_log_handler 
+	configFile 	  = open("/bootflash/%s" % config_file_dst, "r")
+	configFile_first  = open("/bootflash/%s" % config_file_dst_first, "w+")
+	configFile_second = open("/bootflash/%s" % config_file_dst_second, "w+")
+        line = configFile.readline()
+	while line != "": 
+	    if not string.find(line, "system vlan", 0, 11) or not string.find(line, "interface breakout", 0, 18) or not string.find(line, "hardware profile portmode", 0, 25) or not string.find(line, "hardware profile forwarding-mode warp", 0, 37)  or not string.find(line, "hardware profile tcam", 0, 21) or not string.find(line, "type fc", 0, 7) or not string.find(line, "fabric-mode 40G", 0, 15):
+		configFile_first.write(line)
+		if emptyFirstFile is 1:
+		    emptyFirstFile = 0
+	    else: 
+		configFile_second.write(line)
+	    line = configFile.readline()
+
+	configFile.close()
+        removeFile("/bootflash/%s" % config_file_dst)
+	configFile_first.close()
+	if emptyFirstFile is 1:
+      	    removeFile("/bootflash/%s" % config_file_dst_first) 
+
+	configFile_second.close()
+
+def verifyMD5sumofFile (md5given, filename) :
+	if not os.path.exists("%s" % filename):
+		return False	
+
+	md5calculated = md5sum(filename, 0)
+	poap_log(poap_script_log_handler, "md5calculated = %s" % md5calculated)
+
+	if md5given == md5calculated:
+		return True
+	return False
+
+def getMD5SumGiven (keyword, filename) :
+	file = open("/bootflash/%s" % filename, "r")
+	line = file.readline()
+	while line != "":
+		if not string.find(line, keyword, 0, len(keyword)) :
+			line = line.split("=")
+			line = line[1]
+			line = line.strip()
+			file.close()
+			return line
+		line = file.readline()
+	file.close()
+	return ""
+
+def doCopyWithoutExit (protocol = "", host = "", source = "", dest = "", vrf = "management", login_timeout=10, user = "", password = "", dest_tmp = ""):
+	if os.path.exists("/bootflash/%s" % dest_tmp): 
+   		os.remove("/bootflash/%s" % dest_tmp)
+
+	try:
+        	if os.environ['POAP_PHASE'] == "USB":
+			copy_src = "/usbslot1/%s" % (source)
+			copy_dst = "/bootflash/%s" % (dest_tmp)
+			if os.path.exists(copy_src):
+            			shutil.copy (copy_src, copy_dst)
+			else:
+				return False
+          	else:
+   	    		transfer(protocol, host, source, dest_tmp, vrf, login_timeout, user, password)
+	except Exception as inst:
+		poap_log(poap_script_log_handler, "Copy Failed: %s" % inst)
+		return False
+	dest_tmp = "%s%s" % (destination_path, dest_tmp)
+	dest	 = "%s%s" % (destination_path, dest)
+	os.rename(dest_tmp, dest)
+	return True
+
+def doCopy (protocol = "", host = "", source = "", dest = "", vrf = "management", login_timeout=10, user = "", password = "", dest_tmp = ""):
+	if os.path.exists("/bootflash/%s" % dest_tmp): 
+    		os.remove("/bootflash/%s" % dest_tmp)
+
+	try:
+          	if os.environ['POAP_PHASE'] == "USB":
+			copy_src = "/usbslot1/%s" % (source)
+			copy_dst = "/bootflash/%s" % (dest_tmp)
+			if os.path.exists(copy_src):
+	    			poap_log(poap_script_log_handler, "/usbslot1/%s exists" % source)
+            			shutil.copy (copy_src, copy_dst)
+			else:
+	    			poap_log(poap_script_log_handler, "/usbslot1/%s NOT exists" % source)
+				cleanup_files()
+				poap_script_log_handler.close()
+				exit(1)
+          	else:
+	    		transfer(protocol, host, source, dest_tmp, vrf, login_timeout, user, password)
+	except Exception as inst:
+		poap_log(poap_script_log_handler, "Copy Failed: %s" % inst)
+		cleanup_files()
+		poap_script_log_handler.close()
+		exit(1)
+	dest_tmp = "%s%s" % (destination_path, dest_tmp)
+	dest	 = "%s%s" % (destination_path, dest)
+	os.rename(dest_tmp, dest)
+
+def copyMd5Info (file_path, file_name):
+	global username, hostname, poap_script_log_handler, password
+	md5_file_name = "%s.md5" % file_name
+	if os.path.exists("/bootflash/%s" % md5_file_name): 
+		removeFile("/bootflash/%s" % md5_file_name)
+	poap_log(poap_script_log_handler, "INFO: Starting Copy of MD5 File") 
+	tmp_file = "%s.tmp" % md5_file_name 
+	time = config_timeout
+	src = "%s%s" % (file_path, md5_file_name)
+	return doCopyWithoutExit ("http", hostname, src, md5_file_name, vrf, time, username, password, tmp_file)  
+	 
+# Procedure to extract kickstart and system images from "show boot"
+def extractBootVar ():
+    	global system_image_saved, kickstart_image_saved
+    	poap_log(poap_script_log_handler, "show boot")
+    	bootOutput = cli ("show boot")
+    	bootOutArray = bootOutput[1].split("\n")
+    	bootRaw = bootOutArray[3].split('=')
+    	if len(bootRaw) == 2:
+		bootlist = bootRaw[1].split(':')
+    		kickstart_image_saved = bootlist[1]
+    	bootRaw = bootOutArray[4].split('=')
+    	if len(bootRaw) == 2:
+    		bootlist = bootRaw[1].split(':')
+    		system_image_saved = bootlist[1]
+    	poap_log(poap_script_log_handler, "Boot variables: kickstart:%s, system:%s" % (kickstart_image_saved, system_image_saved))
+    	return
+
+# Procedure to copy config file using global information
+def copyConfig ():
+	global username, hostname, config_path, config_file_src, config_file_dst, config_timeout, poap_script_log_handler, emptyFirstFile, password
+	org_file = config_file_dst
+	md5sumGiven = ""
+	if copyMd5Info(config_path, config_file_src):
+		md5sumGiven = getMD5SumGiven("md5sum", "%s.md5" % config_file_src)
+		removeFile("/bootflash/%s.md5" % config_file_src)
+		if md5sumGiven and os.path.exists("/bootflash/%s" % org_file):
+			if verifyMD5sumofFile(md5sumGiven, "/bootflash/%s" % org_file):
+				poap_log(poap_script_log_handler, "INFO: File already exists:Config filename & MD5 match")
+				config_copied = 1
+				splitConfigFile()
+				return;
+	else:
+		if os.path.exists("/bootflash/%s" % org_file):
+			poap_log(poap_script_log_handler, "INFO: File already exists")
+			config_copied = 1
+			splitConfigFile()
+			return
+	poap_log(poap_script_log_handler, "INFO: Starting Copy of Config File") 
+	tmp_file = "%s.tmp" % org_file
+	time = config_timeout
+	src = "%s%s" % (config_path, config_file_src)
+	doCopy ("http", hostname, src, org_file, vrf, time, username, password, tmp_file)  
+	config_copied = 1
+	if md5sumGiven:
+		if not verifyMD5sumofFile(md5sumGiven, "%s%s" % (destination_path, org_file)):
+			poap_log(poap_script_log_handler, "#### config file MD5 verification failed #####\n")
+                        cleanup_files() 
+			poap_script_log_handler.close()
+			exit(1)	
+	splitConfigFile()
+	poap_log(poap_script_log_handler, "INFO: Completed Copy of Config File") 
+
+# Procedure to copy system image using global information
+def copySystem ():
+	global username, hostname, image_path, system_image_src, system_image_dst, system_timeout, poap_script_log_handler, password, system_image_saved 
+	poap_log(poap_script_log_handler, "INFO: Starting Copy of System Image")
+	org_file = system_image_dst
+	md5sumGiven = ""
+	if copyMd5Info(image_path, system_image_src):
+		md5sumGiven = getMD5SumGiven("md5sum", "%s.md5" % system_image_src)
+		removeFile("/bootflash/%s.md5" % system_image_src)
+		if md5sumGiven and os.path.exists("/bootflash/%s" % org_file):
+			if verifyMD5sumofFile(md5sumGiven, "/bootflash/%s" % org_file):
+				poap_log(poap_script_log_handler, "INFO: File already exists:Image Name & MD5 match")
+				return;
+		if md5sumGiven and system_image_saved:
+			if verifyMD5sumofFile(md5sumGiven, "/bootflash/%s" % system_image_saved):
+				poap_log(poap_script_log_handler, "INFO: File already exists:MD5 match")
+				system_image_dst = "bootflash:%s" % system_image_saved
+				return;
+	else:
+		if os.path.exists("/bootflash/%s" % org_file):
+			poap_log(poap_script_log_handler, "INFO: File already exists")
+			return
+	tmp_file = "%s.tmp" % org_file
+	time = system_timeout
+	src = "%s%s" % (image_path, system_image_src)
+	doCopy ("http", hostname, src, org_file, vrf, time, username, password, tmp_file)  
+	system_image_copied = 1
+	if md5sumGiven:
+			if not verifyMD5sumofFile(md5sumGiven, "%s%s" % (destination_path, org_file)):
+	         		poap_log(poap_script_log_handler, "#### System file MD5 verification failed #####\n")
+       		 		poap_script_log_handler.close()
+         			cleanup_files()
+	 			exit(1)	
+	poap_log(poap_script_log_handler, "INFO: Completed Copy of System Image" ) 
+
+# Procedure to copy kickstart image using global information
+def copyKickstart ():
+	global username, hostname, image_path, kickstart_image_src, kickstart_image_dst, kickstart_timeout, poap_script_log_handler, password, kickstart_image_saved 
+	poap_log(poap_script_log_handler, "INFO: Starting Copy of Kickstart Image")
+	org_file = kickstart_image_dst
+	md5sumGiven = ""
+	if copyMd5Info(image_path, kickstart_image_src):
+		md5sumGiven = getMD5SumGiven("md5sum", "%s.md5" % kickstart_image_src)
+		removeFile("/bootflash/%s.md5" % kickstart_image_src)
+		if md5sumGiven and os.path.exists("/bootflash/%s" % org_file):
+			if verifyMD5sumofFile(md5sumGiven, "/bootflash/%s" % org_file):
+				poap_log(poap_script_log_handler, "INFO: File already exists:Image Name & MD5 match")
+				return;
+		if md5sumGiven and kickstart_image_saved:
+			if verifyMD5sumofFile(md5sumGiven, "/bootflash/%s" % kickstart_image_saved):
+				poap_log(poap_script_log_handler, "INFO: File already exists:MD5 match")
+				kickstart_image_dst = "bootflash:%s" % kickstart_image_saved
+				return;
+	else:
+		if os.path.exists("/bootflash/%s" % org_file):
+			poap_log(poap_script_log_handler, "INFO: File already exists")
+			return
+	tmp_file = "%s.tmp" % org_file 
+	time = kickstart_timeout
+	src = "%s%s" % (image_path, kickstart_image_src)
+	doCopy ("http", hostname, src, org_file, vrf, time, username, password, tmp_file)  
+	kickstart_image_copied = 1
+	if md5sumGiven:
+			if not verifyMD5sumofFile(md5sumGiven, "%s%s" % (destination_path, org_file)):
+	         		poap_log(poap_script_log_handler, "#### Kickstart file MD5 verification failed #####\n")
+        			poap_script_log_handler.close()
+         			cleanup_files()
+	 			exit(1)	
+
+	poap_log(poap_script_log_handler, "INFO: Completed Copy of Kickstart Image") 
+
+# Procedure to install both kickstart and system images
+def installImages (): 
+	global kickstart_image_dst, system_image_dst, poap_script_log_handler
+	timeout = -1
+	poap_log(poap_script_log_handler, "######### Copying the boot variables ##########")
+	try:
+	    cli ("config terminal ; boot kickstart %s" % kickstart_image_dst)
+	except SyntaxError:
+	    poap_log(poap_script_log_handler, "WARNING: set boot variable kickstart failed")
+            cleanup_files()
+            poap_script_log_handler.close()
+            exit(1)
+	
+	try: 
+	    cli ("config terminal ; boot system %s" % system_image_dst)
+	except SyntaxError:
+            poap_log(poap_script_log_handler, "WARNING: set boot variable system failed")
+            cleanup_files()
+            poap_script_log_handler.close()
+            exit(1)
+
+	command_successful = False
+	timeout = 10 # minutes   
+	first_time = time.time()
+	endtime = first_time + timeout  * 60 #sec per min
+	retry_delay  = 30 # seconds
+	while not command_successful:
+		new_time = time.time()
+		try:
+			cli ("copy running-config startup-config")
+			command_successful = True
+		except SyntaxError:
+			poap_log(poap_script_log_handler, "WARNING: copy run to start failed")
+			if  new_time  > endtime:
+				poap_log(poap_script_log_handler, "ERROR: time out waiting for  \"copy run start\" to complete successfully")
+				sys.exit(-1)
+			poap_log(poap_script_log_handler, "WARNING: retry in 30 seconds")
+			time.sleep( retry_delay )
+
+	poap_log(poap_script_log_handler, "INFO: Configuration successful")
+
+
+# Verify if free space is available to download config, kickstart and system
+# images
+def verifyfreespace (): 
+    	global poap_script_log_handler, required_space
+	s = os.statvfs("/bootflash/")
+	freespace = (s.f_bavail * s.f_frsize) / 1024
+        poap_log(poap_script_log_handler, "####The free space is %s##"  % freespace )
+
+    	if required_space > freespace:
+         	poap_log(poap_script_log_handler, "#### No enough space to copy the config, kickstart image and system image#####\n")
+        	poap_script_log_handler.close()
+        	exit(1)
+
+# Procedure to set config_file based on switch serial number
+def setSrcCfgFileNameSerial (): 
+        global config_file_src, poap_script_log_handler
+	if os.environ.has_key('POAP_SERIAL'):
+		poap_log(poap_script_log_handler, "serial number %s" % os.environ['POAP_SERIAL'])
+                config_file_src = "conf_%s.cfg" % os.environ['POAP_SERIAL'] 
+	poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+
+# Procedure to set config_file based on the interface MAC
+def setSrcCfgFileNameMAC(): 
+        global config_file_src, poap_script_log_handler
+    	if os.environ['POAP_PHASE'] == "USB":
+        	config_file = "conf_%s.cfg" % os.environ['POAP_RMAC'] 
+           	poap_log(poap_script_log_handler, "Router MAC conf file name : %s" % config_file)
+        	if os.path.exists("/usbslot1/%s" % config_file):
+            		config_file_src = config_file 
+            		poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+            		return
+        	config_file = "conf_%s.cfg" % os.environ['POAP_MGMT_MAC'] 
+           	poap_log(poap_script_log_handler, "MGMT MAC conf file name : %s" % config_file)
+        	if os.path.exists("/usbslot1/%s" % config_file):
+            		config_file_src = config_file
+            		poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+            		return
+    	else: 
+	    if os.environ.has_key('POAP_MAC'):
+		    poap_log(poap_script_log_handler, "Interface MAC %s" % os.environ['POAP_MAC'])
+            config_file_src = "conf_%s.cfg" % os.environ['POAP_MAC'] 
+	poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+
+# Procedure to set config_file based on switch host name
+def setSrcCfgFileNameHostName (): 
+        global config_file_src, poap_script_log_handler
+	if os.environ.has_key('POAP_HOST_NAME'):
+		poap_log(poap_script_log_handler, "Host Name: [%s]" % os.environ['POAP_HOST_NAME'])
+                config_file_src = "conf_%s.cfg" % os.environ['POAP_HOST_NAME'] 
+	else:
+		poap_log(poap_script_log_handler, "Host Name information missing, falling back to static mode\n")
+	poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+
+# Procedure to set config_file_src
+def setSrcCfgFileNameLocation():
+ 	global config_file_src, poap_script_log_handler, env
+	startAppend = 0
+	timeout = -1
+	poap_log(poap_script_log_handler, "show cdp neighbors interface %s" % os.environ['POAP_INTF'])
+	cdpOutput = cli ("show cdp neighbors interface %s" % os.environ['POAP_INTF'])
+	cdpOutArray = cdpOutput[1].split("\n")
+	cdpRaw = cdpOutArray[7].split()
+	cdpRawIntf = cdpOutArray[len(cdpOutArray) - 2].split()
+	cdplist = cdpRaw[0].split('(')
+	switchName = cdplist[0] 
+	intfName   = cdpRawIntf[len(cdpRawIntf) - 1]
+	config_file_src = "conf_%s_%s.cfg" % (switchName, intfName)
+	config_file_src = string.replace(config_file_src, "/", "_")
+	poap_log(poap_script_log_handler, "Selected conf file name : %s" % config_file_src)
+
+# Cleanup logfiles
+poap_cleanup_script_logs()
+
+if poap_config_file_mode == "poap_location": 
+	#set source config file based on location
+        setSrcCfgFileNameLocation()
+
+elif poap_config_file_mode == "poap_serial_number": 
+	#set source config file based on switch's serial number
+        setSrcCfgFileNameSerial()
+
+elif poap_config_file_mode == "poap_mac": 
+	#set source config file based on switch's interface MAC
+        setSrcCfgFileNameMAC()
+
+elif poap_config_file_mode == "poap_hostname": 
+	#set source config file based on switch's assigned hostname
+        setSrcCfgFileNameHostName()
+
+verifyfreespace()
+
+# extract system and kickstart images from "show boot"
+extractBootVar()
+
+# copy config file and images
+copyConfig()
+
+# copy config file and images 
+copySystem()
+copyKickstart()
+
+signal.signal(signal.SIGTERM, sig_handler_no_exit)
+
+# install images
+installImages()
+
+if emptyFirstFile is 0:
+	cli ('copy bootflash:%s scheduled-config' % config_file_dst_first)
+	poap_log(poap_script_log_handler, "######### Copying the first scheduled cfg done ##########")
+	removeFile("/bootflash/%s" % config_file_dst_first)
+
+cli ('copy bootflash:%s scheduled-config' % config_file_dst_second)
+poap_log(poap_script_log_handler, "######### Copying the second scheduled cfg done ##########")
+removeFile("/bootflash/%s" % config_file_dst_second)
+
+poap_script_log_handler.close()
+exit(0)
