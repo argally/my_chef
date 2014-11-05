@@ -7,10 +7,13 @@ ddns-update-style none;
 <% else %>
 ddns-update-style @ddnsstyle;
 <% end %>
+option option-150 code 150 = ip-address;
 
 class "NEXUS_POAP" {
   match if (
-    (substring(option vendor-class-identifier, 0,15) = "Cisco N3K-C3172")
+    (substring(option vendor-class-identifier, 0,15) = "Cisco N3K-C3172") or (
+    (substring(option vendor-class-identifier, 0,15) = "Cisco N3K-C3132")
+    )
   );
 }
 
@@ -38,6 +41,20 @@ option ntp-servers <%= @ntpservers.join(', ') %>;
 <% unless @subnets.nil? -%>
 <% @subnets.each_pair do |sitem,net| -%>
 subnet <%= net['network'] %> netmask <%= net['netmask'] %> {
+  <% unless net['pool'].nil? -%>
+    pool {
+       allow members of "NEXUS_POAP";
+       <% unless net['pool']['tftp-server'].nil? -%>
+       option option-150 <%= net['pool']['tftp-server'] %>;
+       <% end -%>
+       filename "/poap_script.py";
+       range dynamic-bootp <%= net['pool']['start'] %> <%= net['pool']['end'] %>;
+       max-lease-time 3600;
+       <% unless net['pool']['tftp-server'].nil? -%>
+       next-server <%= net['pool']['tftp-server'] %>;
+       <% end -%>
+  } 
+  <% end -%>
   option subnet-mask <%= net['netmask'] %>;
   <% unless net['routers'].nil? -%>
   option routers <%= net['routers'] %>;

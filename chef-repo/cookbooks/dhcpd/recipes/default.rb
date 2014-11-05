@@ -20,10 +20,10 @@ package "dhcpd" do
   package_name node['dhcpd']['package']
   action :install
 end
-
-service node["service_name"] do
-  action [:start, :enable]
-end
+# the dhcp server start goes down here
+#service node["service_name"] do
+#  action [:start, :enable]
+#end
 
 if platform_family?("ubuntu", "debian")
   template "/etc/default/isc-dhcp-server" do
@@ -58,4 +58,8 @@ template "/etc/dhcp/dhcpd.conf" do
     :subnets => subnets,
     :customlines => node['dhcpd']['customlines']
   })
+end
+
+service node["service_name"] do
+  action [:restart]
 end
