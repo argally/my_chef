@@ -45,7 +45,7 @@ case node['java']['install_flavor']
 when 'ibm', 'ibm_tar'
   default['java']['ibm']['url'] = nil
   default['java']['ibm']['checksum'] = nil
-  default['java']['ibm']['accept_ibm_download_terms'] = false
+  default['java']['ibm']['accept_ibm_download_terms'] = true
   default['java']['java_home'] = "/opt/ibm/java"
 
   default['java']['ibm']['6']['bin_cmds'] = [ "appletviewer", "apt", "ControlPanel", "extcheck", "HtmlConverter", "idlj", "jar", "jarsigner",

@@ -5,7 +5,11 @@
 VAGRANTFILE_API_VERSION = "2"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  # All Vagrant configuration is done here. The most common configuration
+  # options are documented and commented below. For a complete reference,
+  # please see the online documentation at vagrantup.com.
 
+  # Every Vagrant virtual environment requires a box to build off of.
     config.vm.define "dev3" do |dev3|
        config.vm.network "public_network", ip: "10.98.241.218", :bridge => 'en0: Wi-Fi (Aiport)'
        config.vm.network "private_network", ip: "192.168.56.46"
@@ -18,7 +22,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         vb.memory = 1024
        end
     end
-       config.vm.define "dev4" do |dev4|
+    config.vm.define "dev4" do |dev4|
        config.vm.network "public_network", ip: "10.98.241.220", :bridge => 'en0: Wi-Fi (Aiport)'
        config.vm.network "private_network", ip: "192.168.56.50"
        config.vm.network "forwarded_port", guest: 80, host: 8080
@@ -30,8 +34,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         vb.memory = 1024
        end
     end
-
-    
     config.vm.define "openstack" do |openstack|
        config.vm.network "public_network", ip: "10.60.0.35", :bridge => 'en0: Wi-Fi'
        config.vm.network "private_network", ip: "192.168.56.60"
@@ -61,7 +63,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
            aws.ami = "ami-641c8e0d"
         end
     end
-  
+    config.vm.define "vsrx1" do |vsrx| 
+       vsrx.vm.box = "juniper/ffp-12.1X46-D20.5"
+    end 
 end
-
-
